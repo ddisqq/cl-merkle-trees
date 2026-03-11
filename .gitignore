@@ -1,0 +1,43 @@
+# ASDF/Quicklisp build artifacts
+*.fasl
+*.fas
+*.dfsl
+*.pfsl
+*.d64fsl
+*.p64fsl
+*.lx64fsl
+*.lx32fsl
+*.dx64fsl
+*.dx32fsl
+*.fx64fsl
+*.fx32fsl
+*.sx64fsl
+*.sx32fsl
+*.wx64fsl
+*.wx32fsl
+*.sse2f
+*.64ufasl
+*.ufasl
+*.abcl
+*.lib
+*.o
+
+# Editor backup files
+*~
+\#*\#
+.\#*
+*.swp
+*.swo
+.idea/
+*.iml
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Build directories
+build/
+dist/
+
+# Local configuration
+.sbclrc.local

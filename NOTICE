@@ -1,0 +1,16 @@
+cl-merkle-trees
+Copyright (c) 2024-2026 Parkian Company LLC. All rights reserved.
+
+This software includes a pure Common Lisp implementation of:
+- SHA-256 cryptographic hash function (FIPS 180-4)
+- Merkle tree construction (Bitcoin-compatible)
+- SPV proof generation and verification
+
+Originally extracted from the CLPIC (Common Lisp P2P Intellectual Property Chain)
+project for standalone use.
+
+The SHA-256 implementation follows NIST FIPS 180-4:
+https://csrc.nist.gov/publications/detail/fips/180/4/final
+
+The Merkle tree implementation is compatible with Bitcoin's merkle tree format
+as specified in the Bitcoin protocol documentation.

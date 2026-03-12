@@ -1,35 +1,70 @@
-;;;; package.lisp - Package Definition
 ;;;; Copyright (c) 2024-2026 Parkian Company LLC. All rights reserved.
 ;;;; SPDX-License-Identifier: BSD-3-Clause
+;;;;
+;;;; Package definition for cl-merkle-trees
 
-(defpackage #:cl-merkle-trees
-  (:use #:cl)
+(defpackage :cl-merkle-trees
+  (:use :cl)
+  (:nicknames :merkle)
   (:export
-   ;; SHA-256 (inlined for standalone use)
+   ;; Hash functions
    #:sha256
-   #:sha256d
+   #:sha256-bytes
+   #:hash-combine
+   #:hash-leaf
+   #:hash-node
 
-   ;; Merkle tree construction
-   #:compute-merkle-root
-   #:build-merkle-tree
-   #:merkle-hash-pair
-   #:merkle-level
-   #:merkle-tree-depth
+   ;; Tree construction
+   #:make-merkle-tree
+   #:merkle-tree
+   #:merkle-tree-root
+   #:merkle-tree-leaves
+   #:merkle-tree-height
    #:merkle-tree-size
 
-   ;; Merkle proofs
-   #:merkle-proof
+   ;; Tree operations
+   #:tree-insert
+   #:tree-update
+   #:tree-get-leaf
+   #:tree-leaf-index
+
+   ;; Proofs
    #:make-merkle-proof
-   #:merkle-proof-tx-hash
-   #:merkle-proof-siblings
+   #:merkle-proof
+   #:merkle-proof-leaf
    #:merkle-proof-index
-   #:compute-merkle-proof
-   #:verify-merkle-proof
+   #:merkle-proof-siblings
+   #:generate-proof
+   #:verify-proof
+   #:verify-proof-with-root
+
+   ;; Multi-proofs
+   #:generate-multi-proof
+   #:verify-multi-proof
+   #:batch-verify-proofs
+
+   ;; Sparse Merkle trees
+   #:make-sparse-merkle-tree
+   #:sparse-merkle-tree
+   #:smt-root
+   #:smt-get
+   #:smt-set
+   #:smt-delete
+   #:smt-generate-proof
+   #:smt-verify-proof
+   #:smt-verify-non-membership
+
+   ;; Accumulators
+   #:make-merkle-accumulator
+   #:merkle-accumulator
+   #:accumulator-root
+   #:accumulator-size
+   #:accumulator-append
+   #:accumulator-generate-proof
+   #:accumulator-verify-proof
 
    ;; Utilities
    #:bytes-to-hex
-   #:hex-to-bytes))
-
-(defpackage #:cl-merkle-trees.test
-  (:use #:cl #:cl-merkle-trees)
-  (:export #:run-tests))
+   #:hex-to-bytes
+   #:hash-to-integer
+   #:integer-to-hash))

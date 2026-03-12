@@ -1,118 +1,154 @@
-;;;; proof.lisp - Merkle Proof Generation and Verification
 ;;;; Copyright (c) 2024-2026 Parkian Company LLC. All rights reserved.
 ;;;; SPDX-License-Identifier: BSD-3-Clause
 ;;;;
-;;;; SPV (Simplified Payment Verification) proof generation and verification.
-;;;; Allows verification of transaction inclusion with O(log n) data.
+;;;; Merkle proofs
 
-(in-package #:cl-merkle-trees)
+(in-package :cl-merkle-trees)
 
 ;;; ============================================================================
-;;; Merkle Proof Structure
+;;; Proof Structure
 ;;; ============================================================================
 
 (defstruct merkle-proof
-  "A Merkle proof for a transaction (SPV proof).
-
-   TX-HASH: The hash of the transaction being proven (32 bytes)
-
-   SIBLINGS: List of (hash . is-right) pairs, one per tree level
-            - hash: The sibling node needed to compute parent
-            - is-right: T if sibling is on the right, NIL if on left
-
-   INDEX: Position of transaction in block (0-based)
-
-   Proof size: O(log n) where n is number of transactions.
-   A block with 2000 txs needs only ~11 sibling hashes."
-  (tx-hash nil :type (or null (vector (unsigned-byte 8))))
-  (siblings '() :type list)
-  (index 0 :type fixnum))
+  "Merkle inclusion proof."
+  (leaf nil)                          ; Leaf hash
+  (index 0 :type integer)             ; Leaf index
+  (siblings nil :type list)           ; Sibling hashes along path
+  (directions nil :type list))        ; 0=left, 1=right for each level
 
 ;;; ============================================================================
 ;;; Proof Generation
 ;;; ============================================================================
 
-(defun compute-merkle-proof (tx-hashes tx-index)
-  "Compute a Merkle proof for the transaction at TX-INDEX.
-
-   Algorithm:
-   1. Start at leaf level with the target transaction
-   2. For each level going up the tree:
-      a. Find the sibling of the current node
-      b. Record (sibling-hash . position)
-      c. Move to parent node at next level
-   3. Continue until reaching root
-
-   Example: Proving Tx1 (index 1) in [Tx0, Tx1, Tx2, Tx3]
-     Level 0: Index 1 -> Sibling is index 0 (Hash0, position left)
-     Level 1: Index 0 -> Sibling is index 1 (Hash23, position right)
-     Proof: [(Hash0 . NIL), (Hash23 . T)]
-
-   Returns: merkle-proof structure, or NIL if invalid index."
-  (when (or (null tx-hashes) (>= tx-index (length tx-hashes)))
-    (return-from compute-merkle-proof nil))
-
-  (let ((siblings '())
-        (level (coerce tx-hashes 'vector))
-        (index tx-index))
-
-    ;; Build proof by tracking the path from leaf to root
-    (loop while (> (length level) 1)
-          do (let* (;; Find sibling index: if we're even, sibling is +1; if odd, -1
-                    (sibling-index (if (evenp index) (1+ index) (1- index)))
-                    ;; Get sibling hash, or duplicate current if sibling doesn't exist
-                    (sibling (if (< sibling-index (length level))
-                                 (aref level sibling-index)
-                                 (aref level index)))  ; Duplicate-last-element rule
-                    ;; Track if sibling is on right (we're on left if even index)
-                    (is-right (evenp index)))
-
-               ;; Record this sibling for the proof
-               (push (cons sibling is-right) siblings)
-
-               ;; Move to parent level
-               (setf level (coerce (merkle-level (coerce level 'list)) 'vector)
-                     index (floor index 2))))
-
-    (make-merkle-proof
-     :tx-hash (nth tx-index tx-hashes)
-     :siblings (nreverse siblings)
-     :index tx-index)))
+(defun generate-proof (tree index)
+  "Generate Merkle proof for leaf at index."
+  (let* ((n (merkle-tree-size tree))
+         (height (merkle-tree-height tree))
+         (nodes (merkle-tree-nodes tree))
+         (padded-n (ash 1 height))
+         (total-nodes (1- (* 2 padded-n))))
+    (when (or (< index 0) (>= index n))
+      (error "Index ~a out of bounds (0..~a)" index (1- n)))
+    (let ((leaf (tree-get-leaf tree index))
+          (siblings nil)
+          (directions nil)
+          (node-idx (+ (- total-nodes padded-n) index)))
+      ;; Walk up tree collecting siblings
+      (dotimes (i height)
+        (declare (ignore i))
+        (let* ((is-right (oddp node-idx))
+               (sibling-idx (if is-right (1- node-idx) (1+ node-idx))))
+          (push (aref nodes sibling-idx) siblings)
+          (push (if is-right 1 0) directions)
+          ;; Move to parent
+          (setf node-idx (floor (1- node-idx) 2))))
+      (make-merkle-proof :leaf leaf
+                         :index index
+                         :siblings (nreverse siblings)
+                         :directions (nreverse directions)))))
 
 ;;; ============================================================================
 ;;; Proof Verification
 ;;; ============================================================================
 
-(defun verify-merkle-proof (proof merkle-root)
-  "Verify a Merkle proof against a known root.
+(defun verify-proof (tree proof)
+  "Verify Merkle proof against tree root."
+  (verify-proof-with-root (merkle-tree-root tree) proof))
 
-   Algorithm:
-   1. Start with the transaction hash from the proof
-   2. For each sibling in the proof (bottom-up):
-      a. Hash current with sibling in correct order
-      b. Result becomes new current hash
-   3. Compare final hash with the merkle root
+(defun verify-proof-with-root (root proof)
+  "Verify Merkle proof against given root."
+  (let ((current (merkle-proof-leaf proof))
+        (siblings (merkle-proof-siblings proof))
+        (directions (merkle-proof-directions proof)))
+    (loop for sibling in siblings
+          for dir in directions do
+      (setf current
+            (if (zerop dir)
+                (hash-node current sibling)
+                (hash-node sibling current))))
+    (equalp current root)))
 
-   Hash ordering:
-   - is-right = T: Hash(current, sibling) - we're on left
-   - is-right = NIL: Hash(sibling, current) - we're on right
+;;; ============================================================================
+;;; Multi-Proofs
+;;; ============================================================================
 
-   Returns: T if proof is valid, NIL otherwise."
-  (declare (optimize (speed 3) (safety 1)))
-  (when (null proof)
-    (return-from verify-merkle-proof nil))
+(defstruct multi-proof
+  "Proof for multiple leaves."
+  (indices nil :type list)            ; Leaf indices
+  (leaves nil :type list)             ; Leaf hashes
+  (decommitment nil :type list))      ; Minimal set of nodes needed
 
-  (let ((current (merkle-proof-tx-hash proof)))
-    ;; Walk up the tree, hashing with each sibling
-    (dolist (sibling-pair (merkle-proof-siblings proof))
-      (let ((sibling (car sibling-pair))
-            (is-right (cdr sibling-pair)))
-        ;; Hash in correct order based on position
-        (setf current (if is-right
-                          (merkle-hash-pair current sibling)
-                          (merkle-hash-pair sibling current)))))
+(defun generate-multi-proof (tree indices)
+  "Generate proof for multiple leaves."
+  (let* ((height (merkle-tree-height tree))
+         (nodes (merkle-tree-nodes tree))
+         (padded-n (ash 1 height))
+         (total-nodes (1- (* 2 padded-n)))
+         ;; Track which nodes are needed vs provided
+         (needed (make-hash-table))
+         (provided (make-hash-table))
+         (leaves nil))
+    ;; Mark leaves as provided
+    (dolist (idx indices)
+      (let ((node-idx (+ (- total-nodes padded-n) idx)))
+        (setf (gethash node-idx provided) t)
+        (push (tree-get-leaf tree idx) leaves)))
+    (setf leaves (nreverse leaves))
+    ;; Walk up marking needed nodes
+    (dolist (idx indices)
+      (let ((node-idx (+ (- total-nodes padded-n) idx)))
+        (dotimes (i height)
+          (declare (ignore i))
+          (let* ((is-right (oddp node-idx))
+                 (sibling-idx (if is-right (1- node-idx) (1+ node-idx)))
+                 (parent-idx (floor (1- node-idx) 2)))
+            (unless (gethash sibling-idx provided)
+              (setf (gethash sibling-idx needed) t))
+            ;; Parent is now "provided" (will be computed)
+            (setf (gethash parent-idx provided) t)
+            (setf node-idx parent-idx)))))
+    ;; Collect decommitment
+    (let ((decommitment nil))
+      (maphash (lambda (idx val)
+                 (declare (ignore val))
+                 (push (cons idx (aref nodes idx)) decommitment))
+               needed)
+      (make-multi-proof :indices indices
+                        :leaves leaves
+                        :decommitment (sort decommitment #'> :key #'car)))))
 
-    ;; Final hash should equal the merkle root
-    (equalp current merkle-root)))
+(defun verify-multi-proof (root multi-proof height)
+  "Verify multi-proof against root."
+  (let* ((padded-n (ash 1 height))
+         (total-nodes (1- (* 2 padded-n)))
+         (indices (multi-proof-indices multi-proof))
+         (leaves (multi-proof-leaves multi-proof))
+         (decommitment (multi-proof-decommitment multi-proof))
+         ;; Build hash table of known values
+         (known (make-hash-table)))
+    ;; Add leaves
+    (loop for idx in indices
+          for leaf in leaves do
+      (setf (gethash (+ (- total-nodes padded-n) idx) known) leaf))
+    ;; Add decommitment
+    (dolist (entry decommitment)
+      (setf (gethash (car entry) known) (cdr entry)))
+    ;; Compute up to root
+    (loop for level from (1- height) downto 0 do
+      (let ((level-start (1- (ash 1 level)))
+            (level-size (ash 1 level)))
+        (loop for i from 0 below level-size do
+          (let* ((node-idx (+ level-start i))
+                 (left-idx (+ (* 2 node-idx) 1))
+                 (right-idx (+ (* 2 node-idx) 2))
+                 (left (gethash left-idx known))
+                 (right (gethash right-idx known)))
+            (when (and left right)
+              (setf (gethash node-idx known)
+                    (hash-node left right)))))))
+    (equalp (gethash 0 known) root)))
 
-;;; End of proof.lisp
+(defun batch-verify-proofs (tree proofs)
+  "Verify multiple single proofs efficiently."
+  (let ((root (merkle-tree-root tree)))
+    (every (lambda (proof) (verify-proof-with-root root proof)) proofs)))

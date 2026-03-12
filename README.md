@@ -1,136 +1,104 @@
 # cl-merkle-trees
 
-Pure Common Lisp Merkle tree implementation with SHA256d hashing.
+Pure Common Lisp Merkle tree implementation with proofs.
 
 ## Features
 
-- **Zero Dependencies**: Pure Common Lisp with no external libraries
-- **Bitcoin-Compatible**: Uses SHA256d (double SHA-256) as specified in Bitcoin
-- **SPV Proofs**: Generate and verify Merkle proofs for O(log n) inclusion verification
-- **Portable**: Runs on any ANSI Common Lisp implementation
+- **Standard Merkle Trees**: Binary trees with proof generation/verification
+- **Sparse Merkle Trees**: Key-value storage with 256-bit key space
+- **Merkle Accumulators**: Append-only trees (Mountain Range style)
+- **Multi-Proofs**: Efficient proofs for multiple leaves
+- **SHA-256**: Built-in hash function (zero dependencies)
 
 ## Installation
 
-Clone this repository and load via ASDF:
-
-```lisp
-(asdf:load-system "cl-merkle-trees")
+```bash
+cd ~/quicklisp/local-projects/  # or ~/common-lisp/
+git clone https://github.com/parkianco/cl-merkle-trees.git
 ```
 
-## Usage
+```lisp
+(asdf:load-system :cl-merkle-trees)
+```
 
-### Basic Merkle Tree
+## Quick Start
+
+### Standard Merkle Tree
 
 ```lisp
 (use-package :cl-merkle-trees)
 
-;; Create some transaction hashes
-(defvar *tx-hashes*
-  (list (sha256 "tx0")
-        (sha256 "tx1")
-        (sha256 "tx2")
-        (sha256 "tx3")))
-
-;; Compute the Merkle root
-(defvar *root* (compute-merkle-root *tx-hashes*))
-(format t "Root: ~A~%" (bytes-to-hex *root*))
+;; Create tree from data
+(let* ((tree (make-merkle-tree '("alice" "bob" "carol" "dave")))
+       ;; Generate proof for index 1 (bob)
+       (proof (generate-proof tree 1)))
+  ;; Verify proof
+  (verify-proof tree proof))  ; => T
 ```
 
-### Merkle Proofs (SPV Verification)
+### Sparse Merkle Tree
 
 ```lisp
-;; Generate a proof for transaction at index 2
-(defvar *proof* (compute-merkle-proof *tx-hashes* 2))
-
-;; Verify the proof against the known root
-(verify-merkle-proof *proof* *root*)  ; => T
-
-;; Verification fails with wrong root
-(verify-merkle-proof *proof* (sha256 "wrong"))  ; => NIL
+;; Create empty SMT
+(let* ((smt (make-sparse-merkle-tree :depth 256))
+       ;; Set values
+       (smt (smt-set smt (sha256 "key1") "value1"))
+       (smt (smt-set smt (sha256 "key2") "value2")))
+  ;; Generate proof
+  (let ((proof (smt-generate-proof smt (sha256 "key1"))))
+    (smt-verify-proof (smt-root smt) proof 256)))  ; => T
 ```
 
-### Building Complete Trees
+### Merkle Accumulator
 
 ```lisp
-;; Build the full tree structure (all levels)
-(defvar *tree* (build-merkle-tree *tx-hashes*))
-
-;; tree is a list of levels: ((leaves) (parents) ... (root))
-(length *tree*)           ; => 3 for 4 transactions
-(length (first *tree*))   ; => 4 (leaves)
-(length (third *tree*))   ; => 1 (root)
+;; Create accumulator
+(let ((acc (make-merkle-accumulator)))
+  ;; Append data
+  (setf acc (accumulator-append acc "item1"))
+  (setf acc (accumulator-append acc "item2"))
+  (setf acc (accumulator-append acc "item3"))
+  ;; Check size and root
+  (accumulator-size acc)  ; => 3
+  (accumulator-root acc)) ; => 32-byte hash
 ```
 
 ## API Reference
 
 ### Hash Functions
+- `sha256` - Compute SHA-256 hash
+- `hash-leaf` - Hash leaf with domain separation
+- `hash-node` - Hash internal node
 
-- `(sha256 data)` - Compute SHA-256 hash (32 bytes)
-- `(sha256d data)` - Compute double SHA-256 (32 bytes)
-
-### Tree Construction
-
-- `(compute-merkle-root tx-hashes)` - Compute root from list of hashes
-- `(build-merkle-tree tx-hashes)` - Build complete tree (all levels)
-- `(merkle-hash-pair left right)` - Hash two nodes together
-- `(merkle-level hashes)` - Compute one level from the level below
+### Standard Trees
+- `make-merkle-tree` - Create tree from data list
+- `merkle-tree-root` - Get root hash
+- `tree-insert` - Insert new leaf
+- `tree-update` - Update existing leaf
 
 ### Proofs
+- `generate-proof` - Generate inclusion proof
+- `verify-proof` - Verify against tree
+- `verify-proof-with-root` - Verify against root hash
 
-- `(compute-merkle-proof tx-hashes index)` - Generate inclusion proof
-- `(verify-merkle-proof proof root)` - Verify proof against root
+### Multi-Proofs
+- `generate-multi-proof` - Proof for multiple leaves
+- `verify-multi-proof` - Verify multi-proof
 
-### Utilities
+### Sparse Merkle Trees
+- `make-sparse-merkle-tree` - Create empty SMT
+- `smt-get` / `smt-set` / `smt-delete` - CRUD operations
+- `smt-generate-proof` / `smt-verify-proof` - Proofs
 
-- `(bytes-to-hex bytes)` - Convert bytes to hex string
-- `(hex-to-bytes string)` - Convert hex string to bytes
-- `(merkle-tree-depth n)` - Calculate tree depth for n leaves
-- `(merkle-tree-size n)` - Calculate total nodes for n leaves
-
-## Algorithm Details
-
-### Tree Structure
-
-The Merkle tree is a balanced binary tree:
-- Leaf nodes are transaction hashes
-- Each parent is SHA256d(left-child || right-child)
-- Odd-numbered levels duplicate the last element
-
-```
-                    Root
-                     |
-         +-----------+-----------+
-         |                       |
-      Hash01                  Hash23
-         |                       |
-    +----+----+             +----+----+
-    |         |             |         |
-  Hash0    Hash1          Hash2    Hash3
-    |         |             |         |
-   Tx0       Tx1           Tx2       Tx3
-```
-
-### Proof Size
-
-Proofs are O(log n) in size:
-- 4 transactions: 2 siblings
-- 1000 transactions: ~10 siblings
-- 1,000,000 transactions: ~20 siblings
-
-## Testing
-
-```lisp
-(asdf:test-system "cl-merkle-trees")
-```
-
-Or run tests directly:
-
-```lisp
-(cl-merkle-trees.test:run-tests)
-```
+### Accumulators
+- `make-merkle-accumulator` - Create empty accumulator
+- `accumulator-append` - Append data
+- `accumulator-root` / `accumulator-size` - Properties
 
 ## License
 
-BSD-3-Clause
+BSD-3-Clause. See [LICENSE](LICENSE).
 
-Copyright (c) 2024-2026 Parkian Company LLC. All rights reserved.
+## Author
+
+Parkian Company LLC

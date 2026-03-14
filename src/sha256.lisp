@@ -1,3 +1,6 @@
+;; Copyright (c) 2024-2026 Parkian Company LLC. All rights reserved.
+;; SPDX-License-Identifier: BSD-3-Clause
+
 ;;;; sha256.lisp - Pure Common Lisp SHA-256 Implementation
 ;;;; Copyright (c) 2024-2026 Parkian Company LLC. All rights reserved.
 ;;;; SPDX-License-Identifier: BSD-3-Clause
